@@ -32,13 +32,16 @@ Demonstrate loading a single frame
 import matplotlib.pyplot as plt
 
 ret, frame = cap.read()
+plt.figure(figsize=(15,10))
+plt.axis('off')
+plt.title('Demo')
 plt.imshow(frame)
 ```
 
 
 
 
-    <matplotlib.image.AxesImage at 0x7f4dc3568208>
+    <matplotlib.image.AxesImage at 0x7fdd9ffc3d30>
 
 
 
