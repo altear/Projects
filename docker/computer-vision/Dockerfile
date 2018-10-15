@@ -1,4 +1,4 @@
-FROM jupyter/base-notebook
+FROM ubuntu:18.04
 
 MAINTAINER Andre Telfer <telfer006@gmail.com>
 
@@ -7,10 +7,12 @@ ENV FFMPEG_SOURCES=/root/ffmpeg_sources
 ENV FFMPEG_BIN=/root/bin
 ENV OPENCV_VERSION="3.4.2"
 ENV NASM_VERSION="2.13.03"
+ENV YASM_VERSION="1.3.0"
+ENV MINICONDA_VERSION="4.5.11"
 
 USER root 
 
-# Install FFmpeg compilation dependencies
+# Install FFmpeg (and general) compilation dependencies
 RUN apt-get update && apt-get -y install \
     autoconf \
     automake \
@@ -32,24 +34,29 @@ RUN apt-get update && apt-get -y install \
     wget \
     zlib1g-dev
 
+# Install Conda
+RUN wget https://repo.continuum.io/miniconda/Miniconda3-${MINICONDA_VERSION}-Linux-x86_64.sh -O $HOME/miniconda.sh
+RUN bash $HOME/miniconda.sh -b -p $HOME/miniconda
+ENV PATH="$HOME/miniconda/bin:${PATH}"
+
 # Install FFmpeg third party dependencies
 RUN mkdir -p $FFMPEG_SOURCES $FFMPEG_BIN
-USER root
 
 # NASM
 WORKDIR ${FFMPEG_SOURCES}
+ENV PATH="$HOME/ffmpeg_bin:$HOME/bin:${PATH}"
 RUN wget https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/nasm-${NASM_VERSION}.tar.bz2 && \
     tar xjvf nasm-${NASM_VERSION}.tar.bz2 && \
     cd nasm-${NASM_VERSION} && \
     ./autogen.sh && \
-    PATH="$HOME/bin:$PATH" ./configure --prefix="$HOME/ffmpeg_build" --bindir="$HOME/bin" && \
+    ./configure --prefix="$HOME/ffmpeg_build" --bindir="$HOME/bin" && \
     make -j"$(nproc)" && \
     make install
 
 # Yasm
-RUN wget -O yasm-1.3.0.tar.gz https://www.tortall.net/projects/yasm/releases/yasm-1.3.0.tar.gz && \
-    tar xzvf yasm-1.3.0.tar.gz && \
-    cd yasm-1.3.0 && \
+RUN wget -O yasm-${YASM_VERSION}.tar.gz https://www.tortall.net/projects/yasm/releases/yasm-${YASM_VERSION}.tar.gz && \
+    tar xzvf yasm-${YASM_VERSION}.tar.gz && \
+    cd yasm-${YASM_VERSION} && \
     ./configure --prefix="$HOME/ffmpeg_build" --bindir="$HOME/bin" && \
     make -j"$(nproc)" && \
     make install
@@ -57,17 +64,15 @@ RUN wget -O yasm-1.3.0.tar.gz https://www.tortall.net/projects/yasm/releases/yas
 # libx264
 RUN git -C x264 pull 2> /dev/null || git clone --depth 1 https://git.videolan.org/git/x264 && \
     cd x264 && \
-    PATH="$HOME/bin:$PATH" PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure --prefix="$HOME/ffmpeg_build" --bindir="$HOME/bin" --enable-static --enable-pic && \
-    PATH="$HOME/bin:$PATH" && \
+    PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure --prefix="$HOME/ffmpeg_build" --bindir="$HOME/bin" --enable-static --enable-pic && \
     make -j"$(nproc)" && \
     make install
 
 # libx265
-RUN sudo apt-get install -y mercurial libnuma-dev && \
+RUN apt-get install -y mercurial libnuma-dev && \
     if cd x265 2> /dev/null; then hg pull && hg update; else hg clone https://bitbucket.org/multicoreware/x265; fi && \
     cd x265/build/linux && \
-    PATH="$HOME/bin:$PATH" cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" -DENABLE_SHARED=off ../../source && \
-    PATH="$HOME/bin:$PATH" && \
+    cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" -DENABLE_SHARED=off ../../source && \
     make -j"$(nproc)" && \
     make install
 
@@ -75,7 +80,6 @@ RUN sudo apt-get install -y mercurial libnuma-dev && \
 RUN wget -O ffmpeg-snapshot.tar.bz2 https://ffmpeg.org/releases/ffmpeg-snapshot.tar.bz2 && \
     tar xjvf ffmpeg-snapshot.tar.bz2 && \
     cd ffmpeg && \
-    PATH="$HOME/bin:$PATH" \
     PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" \
     ./configure \
         --prefix="$HOME/ffmpeg_build" \
@@ -129,6 +133,7 @@ RUN wget https://bootstrap.pypa.io/get-pip.py && \
     rm get-pip.py && \
     pip3 install numpy
 
+# Move the ffmpeg installation to a global location so that a non-root user can access them 
 RUN cp -R $FFMPEG_BIN /usr/local
 RUN cp -R $HOME/ffmpeg_build/lib /usr/local
 ENV LD_LIBRARY_PATH=/usr/local/lib
@@ -179,7 +184,27 @@ RUN cd /opencv/build && \
     make install && \
     ldconfig 
 
-RUN conda install -c conda-forge matplotlib 
 
+# Additional Python 
+RUN conda install -c conda-forge \
+    matplotlib \
+    scikit-learn \
+    pandas \
+    theano \
+    tensorflow \
+    tensorflow-gpu \
+    keras \
+    scikit-image \
+    jupyter \
+    jupyterlab
+
+# Segmentation Git
 WORKDIR /home/jovyan/work
+RUN git clone https://github.com/matterport/Mask_RCNN 
+RUN cd Mask_RCNN && \
+    pip3 install -r requirements.txt && \
+    python3 setup.py install
+
+ENTRYPOINT ["jupyter", "lab", "--ip=0.0.0.0", "--no-browser", "--allow-root"]
+
 
